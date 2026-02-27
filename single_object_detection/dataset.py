@@ -24,6 +24,47 @@ from torchvision.transforms import v2 as T
 
 SplitName = Literal["train", "valid", "test"]
 
+_COCO_JSON_CANDIDATES = (
+    "_annotations.coco.json",
+    "annotations.coco.json",
+    "_annotations.json",
+)
+
+
+def find_coco_json_in_split_dir(split_dir: Path) -> Path:
+    """
+    Find a COCO annotations json file inside a split directory.
+
+    Roboflow often uses `_annotations.coco.json`, but naming can vary.
+    """
+
+    for name in _COCO_JSON_CANDIDATES:
+        p = split_dir / name
+        if p.exists():
+            return p
+
+    # Flexible fallbacks (prefer COCO if present)
+    coco_matches = sorted(split_dir.glob("*.coco.json"))
+    if coco_matches:
+        return coco_matches[0]
+
+    ann_matches = sorted(split_dir.glob("*annotations*.json"))
+    if ann_matches:
+        return ann_matches[0]
+
+    raise FileNotFoundError(
+        f"Could not find a COCO annotations json under split dir: {split_dir}. "
+        f"Tried: {', '.join(_COCO_JSON_CANDIDATES)}"
+    )
+
+
+def _split_has_coco_json(split_dir: Path) -> bool:
+    try:
+        _ = find_coco_json_in_split_dir(split_dir)
+        return True
+    except FileNotFoundError:
+        return False
+
 
 @dataclass(frozen=True)
 class CocoImage:
@@ -148,7 +189,7 @@ def normalized_cxcywh_to_xyxy_pixels(
 
 def auto_find_safety_vest_root(start: Path | None = None) -> Path:
     """
-    Try to locate the `saftey-vest` dataset directory.
+    Try to locate the Safety Vest dataset directory.
 
     The returned directory is expected to contain:
         train/_annotations.coco.json
@@ -156,22 +197,55 @@ def auto_find_safety_vest_root(start: Path | None = None) -> Path:
         test/_annotations.coco.json
     """
 
-    start = start or Path.cwd()
-    candidates = [
-        start / "data" / "saftey-vest",
-        start / "single_object_detection" / "data" / "saftey-vest",
-        start / "deep-learning-classification-to-detection" / "single_object_detection" / "data" / "saftey-vest",
-        Path(__file__).resolve().parent / "data" / "saftey-vest",
-        Path(__file__).resolve().parent.parent / "data" / "saftey-vest",
-    ]
-
-    for p in candidates:
-        if (p / "train" / "_annotations.coco.json").exists():
+    env = __import__("os").environ.get("SAFETY_VEST_DATA_ROOT") or __import__("os").environ.get("SAFETY_VEST_ROOT")
+    if env:
+        p = Path(env).expanduser().resolve()
+        if _split_has_coco_json(p / "train"):
             return p
+        raise FileNotFoundError(f"Env var points to missing dataset: {p}")
+
+    # Fixed local layout (as used in this project workspace on Windows)
+    fixed = Path(r"C:\Users\nirdu\Documents\Project_DL\classification-to-detection\single_object_detection\data").resolve()
+    if _split_has_coco_json(fixed / "train"):
+        return fixed
+
+    start = (start or Path.cwd()).resolve()
+    dataset_names = ("saftey-vest", "safety-vest")
+
+    module_dir = Path(__file__).resolve().parent
+
+    for base in (start, *start.parents):
+        # Common layout in this project: dataset directly under `single_object_detection/data`
+        direct_candidates = [
+            base / "data",
+            base / "single_object_detection" / "data",
+            base / "classification-to-detection" / "single_object_detection" / "data",
+            base / "deep-learning-classification-to-detection" / "single_object_detection" / "data",
+            module_dir / "data",
+            module_dir.parent / "data",
+        ]
+        for p in direct_candidates:
+            if _split_has_coco_json(p / "train"):
+                return p
+
+        for name in dataset_names:
+            candidates = [
+                base / "data" / name,
+                base / name,
+                base / "single_object_detection" / "data" / name,
+                base / "classification-to-detection" / "single_object_detection" / "data" / name,
+                base / "deep-learning-classification-to-detection" / "single_object_detection" / "data" / name,
+                module_dir / "data" / name,
+                module_dir.parent / "data" / name,
+            ]
+
+            for p in candidates:
+                if _split_has_coco_json(p / "train"):
+                    return p
 
     raise FileNotFoundError(
-        "Could not locate the 'saftey-vest' dataset directory. "
-        "Pass data_root explicitly to SafetyVestDataset(...)."
+        "Could not locate the Safety Vest dataset directory. "
+        "Pass data_root explicitly to SafetyVestDataset(...), or set SAFETY_VEST_DATA_ROOT."
     )
 
 
@@ -193,6 +267,10 @@ class SafetyVestDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
         Important: bbox coordinates are computed from the annotation JSON and are NOT updated by
         this module if you apply geometric transforms (crop/resize/flip). For Part 2, start with
         non-geometric transforms (e.g., color jitter) or handle bbox-aware transforms separately.
+    sample_transform:
+        Optional transform that receives **both** (PIL image, bbox_tensor) and must return
+        (image_tensor, bbox_tensor). This enables bbox-aware augmentation (e.g., horizontal flip)
+        without breaking labels.
     expected_num_objects:
         If set (default 1), enforce that each image has exactly this many annotations.
     """
@@ -203,15 +281,18 @@ class SafetyVestDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
         split: SplitName,
         data_root: Path | None = None,
         transform: Any | None = None,
+        sample_transform: Any | None = None,
         expected_num_objects: int = 1,
     ) -> None:
         self.split: SplitName = split
-        self.data_root = data_root or auto_find_safety_vest_root()
+        if data_root is None:
+            # Prefer the in-repo dataset location if present.
+            in_repo = Path(__file__).resolve().parent / "data"
+            self.data_root = in_repo if _split_has_coco_json(in_repo / "train") else auto_find_safety_vest_root()
+        else:
+            self.data_root = data_root
         self.split_dir = self.data_root / split
-        self.coco_path = self.split_dir / "_annotations.coco.json"
-
-        if not self.coco_path.exists():
-            raise FileNotFoundError(f"Missing COCO annotation file: {self.coco_path}")
+        self.coco_path = find_coco_json_in_split_dir(self.split_dir)
 
         self.index = load_coco_index(self.coco_path)
         self.image_ids = sorted(self.index.images.keys())
@@ -220,6 +301,7 @@ class SafetyVestDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
 
         # Default: convert PIL -> float tensor in [0, 1]
         self.transform = transform if transform is not None else T.Compose([T.ToImage(), T.ToDtype(torch.float32, scale=True)])
+        self.sample_transform = sample_transform
 
         if expected_num_objects is not None:
             # Early validation: verify that each image has exactly expected_num_objects annotations.
@@ -257,8 +339,11 @@ class SafetyVestDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
             image_height=im.height,
         )
 
-        image_tensor: torch.Tensor = self.transform(img)
         bbox_tensor = torch.tensor(bbox_cxcywh, dtype=torch.float32)
+        if self.sample_transform is not None:
+            image_tensor, bbox_tensor = self.sample_transform(img, bbox_tensor)
+        else:
+            image_tensor = self.transform(img)
 
         return image_tensor, bbox_tensor
 

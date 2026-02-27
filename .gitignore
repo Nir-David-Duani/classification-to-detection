@@ -1,6 +1,7 @@
 # TensorBoard
 runs/
 logs/
+checkpoints/
 
 # Model checkpoints
 *.pt
@@ -8,6 +9,12 @@ logs/
 
 # Data
 data/
+
+__pycache__/
+
+videos/
+videos_out/
+
 
 # Videos outputs
 videos/output/
