@@ -178,18 +178,25 @@ We validated this dataset in `experiments.ipynb` by loading samples, checking te
 ---
 
 ### 2.6 Model Construction (Stage 3 — `model.py`)
-We implemented a simple detector model:
+We implemented a **configurable detector** and compared multiple head architectures (as later used in the architecture sweep):
 - `single_object_detection/model.py`
 
 **Backbone**: pretrained ResNet-18 (ImageNet).  
-**Adaptation**: replace the classification layer `fc(512 → 1000)` with a regression head:
-- `Linear(512 → 128) → ReLU → Linear(128 → 4)`
+**Core adaptation**: replace the classification head with a regression module that outputs **4 bbox parameters** in the normalized representation:
+\[
+(c_x, c_y, w, h)\in[0,1]^4
+\]
+To enforce the same output range as the targets, we apply a **Sigmoid** output activation (default), which stabilizes early training and prevents invalid coordinates.
 
-This converts the network output from class logits to bbox parameters. Since the target bbox representation is normalized to \([0,1]\), we apply a `Sigmoid` output activation, constraining predictions to the same range. This typically stabilizes early training behavior.
+Rather than committing to a single head design, `model.py` supports multiple heads through `DetectorConfig.arch`:
+- `mlp_simple`: minimal MLP baseline (single hidden layer)
+- `mlp`: deeper MLP head with configurable hidden sizes and dropout
+- `conv_head`: convolutional head applied on the last ResNet feature map **before pooling**, to preserve spatial information relevant for localization
+- `two_head`: two-branch head (center branch + size branch), trained with a weighted loss
 
 **Transfer learning strategy**: we support freezing and unfreezing the backbone.
 - Start with a warm-up stage where the backbone is frozen and only the head is trained.
-- Continue with fine-tuning by unfreezing later layers (e.g., `layer4`) and training with a smaller learning rate.
+- Continue with fine-tuning by unfreezing `layer4` and training with separate learning rates for `layer4` vs head (implemented in `train.py`).
 
 We performed a model sanity check inside `experiments.ipynb` to confirm:
 - Input shape: \((B,3,224,224)\)
