@@ -143,23 +143,18 @@ The **base loss** is:
 
 Total:
 
-\[
-L_{\text{base}} = \lambda_{\text{bbox}} \cdot L_{\text{SmoothL1}} + L_{\text{class}},
-\quad \lambda_{\text{bbox}} = 1.0.
-\]
+L_base = λ_bbox · L_SmoothL1 + L_class, with λ_bbox = 1.0.
 
 ### IoU‑Aware Loss
 
 To better align training with the evaluation metric, we introduce an **IoU‑aware term**:
 
-\[
-L = L_{\text{base}} + \lambda_{\text{IoU}} \cdot (1 - \text{mIoU}),
-\]
+L = L_base + λ_IoU · (1 − mIoU).
 
 where:
 
 - `mIoU` is computed as in evaluation (see below), over all non‑background slots.
-- \(\lambda_{\text{IoU}}\) is a weight (e.g. 0.5) controlling the influence of the IoU term.
+- `lambda_IoU` is a weight (e.g., 0.5) controlling the influence of the IoU term.
 
 Effect:
 
