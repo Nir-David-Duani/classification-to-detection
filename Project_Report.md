@@ -272,6 +272,36 @@ The sweep showed a clear advantage for the convolutional head:
 Based on the sweep, the final model for Part 2 was:
 - **Architecture 2 — Conv-head (`arch="conv_head"`)**
 
+#### 2.9.3 Chosen architecture details (Conv-head)
+The key motivation for the conv-head is that **localization is spatial**: predicting a bounding box benefits from preserving information about *where* features appear in the image. A pure MLP head typically operates on a globally pooled feature vector, which can discard spatial layout cues. In contrast, the conv-head operates on the last ResNet feature map before pooling, and only pools after additional convolutional processing.
+
+Concretely, the selected head (as implemented in `single_object_detection/model.py`) is:
+- Input: last ResNet feature map with 512 channels
+- `1×1 Conv(512 → 256) → ReLU → Dropout2d(p=0.25)`
+- `3×3 Conv(256 → 128) → ReLU → Dropout2d(p=0.25)`
+- `AdaptiveAvgPool2d(1×1) → Flatten → Linear(128 → 4)`
+- Output activation: **Sigmoid** (predicts normalized \((c_x,c_y,w,h)\in[0,1]^4\))
+
+This head is still lightweight, but it adds a small amount of **spatially-aware capacity** on top of the backbone, which empirically improved mIoU in validation and produced the most stable qualitative behavior in video inference.
+
+#### 2.9.4 Training hyperparameters for the chosen model (as used in `experiments.ipynb`)
+The final conv-head run used:
+- **Batch size**: 16
+- **Max epochs**: 100
+- **Phase A (head-only warmup)**: 10 epochs (`head_only_epochs=10`)
+- **Loss**: SmoothL1 on normalized \((c_x,c_y,w,h)\) (`loss_mode="smoothl1"`)
+- **Optimizer**: AdamW with `weight_decay=3e-4`
+- **Learning rates (Phase B param groups)**:
+  - `layer4`: `lr_layer4 = 1.06e-3`
+  - `head`: `lr_head = 8e-4`
+- **LR scheduler**: `ReduceLROnPlateau` on validation mIoU with `patience=5`, `factor=0.5`
+- **Early stopping**: disabled (`use_early_stopping=False`)
+- **Dropout**: `conv_drop2d = 0.25`
+- **Reproducibility**: `seed=0`
+- **Logging / checkpoints**:
+  - `logdir="logs/full_arch2_conv_head2"`
+  - `ckpt_dir="checkpoints/full_arch2_conv_head"`
+
 ---
 
 ### 2.10 Test Set Evaluation (Final Model)
@@ -291,17 +321,14 @@ Practical note: the checkpoint loader explicitly used `torch.load(..., weights_o
 ---
 
 ### 2.11 External Video Inference (Qualitative Evaluation + Debugging)
-To validate real-world behavior beyond the dataset splits, the detector was applied to external videos:
-- input clips: `single_object_detection/videos/clip1.mp4`, `clip2.mp4`
-- outputs: `single_object_detection/videos_out/`
+To validate real-world behavior beyond the dataset splits, the detector was applied to external videos. For each frame, the model predicts a bounding box, the box is drawn on the frame (labeled **`safety vest`**), and an annotated output video is saved for qualitative analysis.
 
 Key implementation details (to keep training and inference consistent):
 - The model always receives a **fixed 224×224** input (matching the dataset images).
 - Each video frame is resized to 224×224 for inference, and the predicted bbox is **scaled back** to the original (or resized) frame resolution before drawing.
 - The preprocessing used the same normalization as training (ImageNet mean/std), and frames were converted to a PIL image before applying the evaluation transform to avoid type mismatches.
-- The drawn label was fixed to a single string: **`safety vest`**.
 
-An additional uncertainty-based filter (Monte Carlo dropout) was prototyped to suppress unreliable boxes, but it introduced visible temporal jitter and was ultimately removed in favor of stable rendering for the final video output.
+An additional uncertainty-based filter (Monte Carlo dropout) was prototyped to suppress unreliable boxes, but it introduced visible temporal jitter and was removed in favor of stable rendering for the final output video.
 
 ---
 

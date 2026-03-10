@@ -14,7 +14,7 @@ __pycache__/
 
 videos/
 videos_out/
-
+videos_out_conv_shared_best_iou/
 
 # Videos outputs
 videos/output/
