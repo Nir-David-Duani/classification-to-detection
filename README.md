@@ -25,13 +25,13 @@ The focus is on:
 
 > Safety‑vest detector – exactly one object per frame.
 
-![Single‑object detection demo](assets/single_object_demo.gif)
+![Single‑object detection ](single_object.gif)
 
 ### Multi‑Object Detection (Part 3)
 
 > Helmet / person / vest detector – up to 3 objects per frame using fixed slots.
 
-![Multi‑object detection demo](assets/multi_object_demo.gif)
+![Multi‑object detection ](multi_object.gif)
 
 > Replace the `assets/...` paths above with the actual locations of your GIFs in the repo.
 
