@@ -26,6 +26,7 @@ The focus is on:
 > Safety‑vest detector – exactly one object per frame.
 
 ![Single‑object detection ](single_object.gif)
+![Single‑object detection ](single_object1.gif)
 
 ### Multi‑Object Detection (Part 3)
 
