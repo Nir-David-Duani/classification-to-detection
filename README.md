@@ -33,8 +33,6 @@ The focus is on:
 
 ![Multi‑object detection ](multi_object.gif)
 
-> Replace the `assets/...` paths above with the actual locations of your GIFs in the repo.
-
 ---
 
 ## Repository Structure
