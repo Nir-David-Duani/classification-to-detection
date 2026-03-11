@@ -32,6 +32,7 @@ The focus is on:
 > Helmet / person / vest detector – up to 3 objects per frame using fixed slots.
 
 ![Multi‑object detection ](multi_object.gif)
+![Multi‑object detection ](multi_object1.gif)
 
 ---
 
