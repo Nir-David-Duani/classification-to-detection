@@ -21,8 +21,6 @@ The focus is on:
 
 ## Example Results
 
-Below are short GIF snippets demonstrating the detectors in action.
-
 ### Single‑Object Detection (Part 2)
 
 > Safety‑vest detector – exactly one object per frame.
